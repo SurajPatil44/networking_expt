@@ -5,98 +5,89 @@ import select
 
 CHUNK_SIZE = 1024 
 
+class Message:
+    '''This is abstract class for message
+    message could be following type
+    full message
+    partial message
+    exception message
+    '''
+    def __init__(self):
+        self.message = bytearray()
+        self.is_full = False
+        self.cur_len = 0
+
+    def clear(self):
+        self.message = bytearray()
+
+    def set_message(self,data,total_len):
+        self.message += data
+        self.cur_len += len(data)
+        if cur_len >= total_len:
+            self.is_full = True
+        else:
+            self.is_full = False
+        
+
+
+class Client:
+
+    def __init__(self,conn):
+        self.conn = conn
+
+    def gen_message(self):
+        raise NotImplementedError
+
+    def get_next_header(self):
+        raise NotImplementedError
+
+    def message_generator(self):
+        raise NotImplementedError
+
+
+
 class StreamingServer:
 
     def __init__(self,sock):
         self.sock = sock
         self.connections = [sock]
-
-    def gen_message(self):
-        try:
-            message = bytearray()
-            hdr_size = yield None
-            #print(f"recived {hdr_size}")
-            while True:
-                chunk = self.conn.recv(hdr_size)
-
-                if chunk == b'':
-                    yield None
-
-                message += chunk
-
-                if len(message) >= hdr_size:
-                    #print(f"message now {message}")
-                    new_hdr_size = yield message[:hdr_size]
-                    #print(f"recived {new_hdr_size}")
-                    if len(message):
-                        message = message[hdr_size:]
-                    else:
-                        message = bytearray()
-                    hdr_size = new_hdr_size
-
-        except Exception as e:
-            print(f"exception is {e}")
-            yield None
-
-    def get_next_header(self):
-        try:
-            next_pack_size = self.conn.recv(4)
-            if next_pack_size != b'':
-                print(f"header recieved {next_pack_size}")
-                next_pack_size = struct.unpack('i',next_pack_size)
-                return next_pack_size[0]
-            else:
-                return None
-        except Exception as e:
-            print(f"received exception {e} sending None")
-            return None
-
-    def message_generator(self):
-        ## prime the gen
-        mgen = self.gen_message()
-        next(mgen)
-
-        while True:
-            nsize = self.get_next_header()
-            #print(f"next pack size is {nsize}")
-            if nsize == None:
-                mgen.close()
-                yield None
-            yield mgen.send(nsize)
+        self.con_mgr = {}
 
     def add_client(self,conn):
         self.connections.append(conn)
-                
 
     def serve(self):
-        try:
-            while True:
+        while True:
+            try:
                 readable,writable,excepted = select.select(self.connections,[],self.connections)
                 for conn in readable:
                     if conn == self.sock:
                         new_conn,addr = conn.accept()
                         print(f"got new conn from {addr}")
+                        con_obj = Client(new_conn)
+                        self.conn_mgr[new_conn] = con_obj
                         self.add_client(new_conn)
                     else:
                         ## TODO : serve in different thread for each connection
                         ## right now it is blocking the select poll
-                        self.conn = conn
-                        mgen = self.message_generator()
-                        count = 0
-                        for ind,message in enumerate(mgen):
-                            if message == None:
-                                print(f"we received {message} at {ind}")
-                                if count > 0:
-                                    raise StopIteration
-                                    count += 1
-                                    continue
-                            print(f"{ind} . {message}")
+                        con_obj = self.conn_mgr[conn]
+                        mgen = con_obj.message_generator()
+                        message = next(mgen)
+                        if messagge:
+                            print(message)
                 for conn in excepted:
                     print(f"removing {conn} from list")
                     self.connection.remove(conn)
 
-        except Exception as E:
-            print(f"received exception {E}")
+            except Exception as E:
+
+                if "StopIteration" in E.args[0]:
+                    del elf.conn_mgr[conn]
+                    self.connection.remove(conn)
+                    continue
+                else:
+                    print(f"received exception {E}")
+                    break
 
 if __name__ == "__main__":
     try:
