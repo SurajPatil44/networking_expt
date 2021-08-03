@@ -76,8 +76,9 @@ class Client:
             while True:
                 chunk = self.conn.recv(len_reqd)
                 if chunk == b'':
-                    yield ConnectionBroken
-                self.message.set_message(chunk)
+                    return ConnectionBroken
+                else:
+                    self.message.set_message(chunk)
                 if self.message.is_full:
                     print(f"whole message {self.message.buffer}")
                     len_reqd = yield self.message.buffer
@@ -113,11 +114,13 @@ class Client:
                         raise ValueError("invalid packet")
                     elif isinstance(packet_len,ConnectionBroken):
                         return packet_len
-                    else:
+                    elif isinstance(packet_len,bytearray):
                         ## now we have our message
                         packet_len = struct.unpack('i',packet_len)[0]
                         print(packet_len)
                         self.next_is_header = False
+                        return packet_len
+                    else:
                         return packet_len
         except Exception as E:
             print(f"exception in header {E}")
@@ -125,16 +128,22 @@ class Client:
     def message_generator(self):
         try:
             self.prime_msg_gen()
+            reqd = None
             while True:
                 if self.next_is_header:
                     nxt_hdr_len = self.get_next_header()
+                    print(f"next header {type(nxt_hdr_len)}")
                     if isinstance(nxt_hdr_len,ConnectionBroken):
+                        self.packet_len_gen.close()
                         yield nxt_hdr_len
                     elif isinstance(nxt_hdr_len,int):
                         reqd = nxt_hdr_len
                 message = self.packet_len_gen.send(reqd)
                 if isinstance(message,MoreDataRequired):
-                    reqd -= message.reqd
+                    if reqd:
+                        reqd -= message.reqd
+                    else:
+                        print(f"message is {message}")
                 elif isinstance(message,PrimePacket):
                     raise ValueError("invalid packet")
                 elif isinstance(message,ConnectionBroken):
@@ -165,13 +174,15 @@ class StreamingServer:
                         new_conn,addr = conn.accept()
                         print(f"got new conn from {addr}")
                         con_obj = Client(new_conn)
-                        self.con_mgr[new_conn] = con_obj
+                        ##prime only once 
+                        mgen = con_obj.message_generator()
+                        self.con_mgr[new_conn] = (con_obj,mgen)
                         self.add_client(new_conn)
                     else:
                         ## TODO : serve in different thread for each connection
                         ## right now it is blocking the select poll
-                        con_obj = self.con_mgr[conn]
-                        mgen = con_obj.message_generator()
+                        con_obj = self.con_mgr[conn][0]
+                        mgen = self.con_mgr[conn][1]
                         message = next(mgen)
                         if message:
                             if isinstance(message,ConnectionBroken):
@@ -184,7 +195,7 @@ class StreamingServer:
             except StopIteration:
                 del self.con_mgr[conn]
                 self.connections.remove(conn)
-                print("{conn} has stopped abruptly")
+                print(f"{conn} has stopped abruptly")
                 continue
 
             except Exception as E:
