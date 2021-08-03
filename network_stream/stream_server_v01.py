@@ -38,7 +38,7 @@ class Message:
     def set_message(self,data):
         self.buffer += data
         self.cur_len += len(data)
-        print(f"{self.cur_len} and {self.total_len}")
+        #print(f"{self.cur_len} and {self.total_len}")
         if self.cur_len >= self.total_len:
             self.is_full = True
             self.cur_len = 0
@@ -70,7 +70,7 @@ class Client:
     def gen_message(self):
         try:
             len_reqd = yield PrimePacket
-            print(f"priming with {len_reqd}")
+            #print(f"priming with {len_reqd}")
             self.message.clear()
             self.message.total_len = len_reqd
             while True:
@@ -80,10 +80,10 @@ class Client:
                 else:
                     self.message.set_message(chunk)
                 if self.message.is_full:
-                    print(f"whole message {self.message.buffer}")
+                    #print(f"whole message {self.message.buffer}")
                     len_reqd = yield self.message.buffer
                     self.message.clear()
-                    print(f"getting {len_reqd}")
+                    #print(f"getting {len_reqd}")
                     self.message.total_len = len_reqd
                 else:
                     yield MoreDataRequired(self.message.total_len - self.message.cur_len)  
@@ -117,7 +117,7 @@ class Client:
                     elif isinstance(packet_len,bytearray):
                         ## now we have our message
                         packet_len = struct.unpack('i',packet_len)[0]
-                        print(packet_len)
+                        #print(packet_len)
                         self.next_is_header = False
                         return packet_len
                     else:
@@ -132,7 +132,7 @@ class Client:
             while True:
                 if self.next_is_header:
                     nxt_hdr_len = self.get_next_header()
-                    print(f"next header {type(nxt_hdr_len)}")
+                    #print(f"next header {type(nxt_hdr_len)}")
                     if isinstance(nxt_hdr_len,ConnectionBroken):
                         self.packet_len_gen.close()
                         yield nxt_hdr_len
@@ -187,7 +187,7 @@ class StreamingServer:
                         if message:
                             if isinstance(message,ConnectionBroken):
                                 raise StopIteration
-                            print(f"received {message}")
+                            print(f"received {bytes(message)} from {conn.getpeername()}")
                 for conn in excepted:
                     print(f"removing {conn} from list")
                     self.connection.remove(conn)
@@ -195,7 +195,7 @@ class StreamingServer:
             except StopIteration:
                 del self.con_mgr[conn]
                 self.connections.remove(conn)
-                print(f"{conn} has stopped abruptly")
+                print(f"{conn.getpeername()} has stopped abruptly")
                 continue
 
             except Exception as E:
