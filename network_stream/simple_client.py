@@ -2,6 +2,8 @@ import socket
 import struct
 import random
 import select
+import sys
+import time
 
 def recv_all(conn,total_len):
     message = bytearray()
@@ -17,9 +19,9 @@ def send_message(conn,message):
     ## prepare len
     slen = len(message)
     slen = struct.pack('i',slen)
-    print(f"sending {slen} ")
+    #print(f"sending {slen} ")
     conn.send(slen)
-    print(f"sending message")
+    #print(f"sending message")
     conn.send(message)
 
 
@@ -27,6 +29,8 @@ if __name__ == "__main__":
     try:
         sock = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         sock.connect(('localhost',8888))
+        sock.setblocking(0)
+        sock.settimeout(10)
         connections = [sock]
         tot_pack = 0
         N = 100
@@ -38,7 +42,7 @@ if __name__ == "__main__":
             for conn in read:
                 if conn == sock:
                     read_len = recv_all(conn,4)
-                    read_len = struct.unpack('i',read_len)
+                    read_len = struct.unpack('i',read_len)[0]
                     message = recv_all(conn,read_len)
                     print(message)
                 else:
@@ -46,9 +50,14 @@ if __name__ == "__main__":
 
             for conn in write:
                 if conn == sock:
+                    sl = random.randint(1,3)
+                    time.sleep(sl)
                     send_message(conn,b'n'*random.randint(20,40))
                     tot_pack += 1
-                    print(f"sent {tot_pack} packets")
+                    #size_fmt = '\r{:>6.1%}'.format(tot_pack/N)
+                    #sys.stdout.write(size_fmt)
+                    #sys.stdout.flush()
+
                 else:
                     pass
 

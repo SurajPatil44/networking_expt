@@ -4,6 +4,9 @@ import time
 import select
 import sys
 import traceback
+from queue import Queue
+import queue
+import errno
 
 CHUNK_SIZE = 1024 
 
@@ -18,6 +21,13 @@ class ConnectionBroken:
 class PrimePacket:
     def __init__(self):
         pass
+
+def send_message(conn,message):
+    slen = len(message)
+    slen = struct.pack('i',slen)
+    conn.send(slen)
+    conn.send(message)
+
 
 class Message:
     '''This is abstract class for message
@@ -88,6 +98,12 @@ class Client:
                 else:
                     yield MoreDataRequired(self.message.total_len - self.message.cur_len)  
 
+        except socket.error as error:
+            last_err = error.errno
+            print(f"got socket {last_err}",end=" ")
+            print(f"{error.strerror}")
+            return ConnectionBroken
+
         except Exception as E:
             print(f"exception as {E}")
             yield self.message.buffer
@@ -124,6 +140,8 @@ class Client:
                         return packet_len
         except Exception as E:
             print(f"exception in header {E}")
+            con_break = ConnectionBroken()
+            return con_break
 
     def message_generator(self):
         try:
@@ -154,6 +172,7 @@ class Client:
 
         except Exception as e:
             print(f"exception in mgen {e}")
+            return ConnectionBroken()
 
 class StreamingServer:
 
@@ -165,6 +184,7 @@ class StreamingServer:
     def add_client(self,conn):
         self.connections.append(conn)
 
+
     def serve(self):
         while True:
             try:
@@ -173,38 +193,64 @@ class StreamingServer:
                     if conn == self.sock:
                         new_conn,addr = conn.accept()
                         print(f"got new conn from {addr}")
+                        new_conn.setblocking(0)
+                        new_conn.settimeout(10)
                         con_obj = Client(new_conn)
                         ##prime only once 
                         mgen = con_obj.message_generator()
-                        self.con_mgr[new_conn] = (con_obj,mgen)
+                        message_q = Queue()
+                        self.con_mgr[new_conn] = (con_obj,mgen,message_q)
                         self.add_client(new_conn)
                     else:
                         ## TODO : serve in different thread for each connection
                         ## right now it is blocking the select poll
                         con_obj = self.con_mgr[conn][0]
                         mgen = self.con_mgr[conn][1]
+                        msg_q = self.con_mgr[conn][2]
                         message = next(mgen)
                         if message:
                             if isinstance(message,ConnectionBroken):
                                 raise StopIteration
+                            msg_q.put_nowait(message)
+                            #print("messge q is ",msg_q)
                             print(f"received {bytes(message)} from {conn.getpeername()}")
+
+                for conn in writable:
+                    #print(f"we can write also for {conn.getpeername()}")
+                    msg_q = self.con_mgr[conn][2]
+                    try:
+                        next_msg = msg_q.get_nowait()
+                    except queue.Empty:
+                        #print("is empty ???")
+                        pass
+                    else:
+                        print(f"sending {bytes(next_msg)} to {conn.getpeername()}")
+                        send_message(conn,bytes(next_msg))
+                        #conn.send(next_msg)
+                    
                 for conn in excepted:
                     print(f"removing {conn} from list")
                     self.connection.remove(conn)
 
-            except StopIteration:
+            except StopIteration as Exc:
+                print(f"closing {conn.getpeername()}")
+                conn.close()
                 del self.con_mgr[conn]
                 self.connections.remove(conn)
-                print(f"{conn.getpeername()} has stopped abruptly")
                 continue
 
             except Exception as E:
-
                 if "StopIteration" in E.args[0]:
+                    print(f"closing {conn.getpeername()}")
+                    conn.close()
                     del self.con_mgr[conn]
                     self.connection.remove(conn)
                     continue
                 else:
+                    print(f"closing {conn.getpeername()}")
+                    conn.close()
+                    del self.con_mgr[conn]
+                    self.connection.remove(conn)
                     print(f"received exception {E}")
                     print(f"{traceback.print_exc()}")
                     sys.exit(1)
@@ -225,7 +271,8 @@ if __name__ == "__main__":
             Server = StreamingServer(sock)
             Server.serve()
     except Exception as E:
-        print(E)
+        print(f"somehow {E}")
+        print(f"{traceback.print_exc()}")
     finally:
         sock.close() 
         
