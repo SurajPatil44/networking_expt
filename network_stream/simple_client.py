@@ -24,6 +24,25 @@ def send_message(conn,message):
     #print(f"sending message")
     conn.send(message)
 
+def send_message_stopping(conn,message):
+    try:
+        slen  = len(message)
+        print(f"message len is {slen}")
+        slen_h = slen // 2;
+        slenb = struct.pack('i',slen)
+        conn.send(slenb)
+        print(f"sent header....")
+        part1 = message[:slen_h]
+        part2 = message[slen_h:]
+        print(f"I sent {len(part1)} ")
+        conn.send(part1)
+        time.sleep(0.5)
+        print(f"now sending sent {len(part2)} ")
+        conn.send(part1)
+        conn.send(part2)
+    except Exception as e:
+        print(e)
+
 
 if __name__ == "__main__":
     try:
@@ -52,7 +71,7 @@ if __name__ == "__main__":
                 if conn == sock:
                     sl = random.randint(1,3)
                     time.sleep(sl)
-                    send_message(conn,b'n'*random.randint(20,40))
+                    send_message_stopping(conn,b'n'*random.randint(20,40))
                     tot_pack += 1
                     #size_fmt = '\r{:>6.1%}'.format(tot_pack/N)
                     #sys.stdout.write(size_fmt)
