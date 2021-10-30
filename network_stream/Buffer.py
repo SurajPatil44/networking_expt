@@ -1,5 +1,8 @@
 from abc import ABC
 
+
+## test : checking vim extension
+
 class Buffer(ABC):
     def __init__(self):
         self.buffer = bytearray()
